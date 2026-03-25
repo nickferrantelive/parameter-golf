@@ -84,11 +84,7 @@ class Hyperparameters:
     beta1 = float(os.environ.get("BETA1", 0.9))
     beta2 = float(os.environ.get("BETA2", 0.95))
     adam_eps = float(os.environ.get("ADAM_EPS", 1e-8))
-    grad_clip_norm = float(os.environ.get("GRAD_CLIP_NORM", 0.0))
-    # Late QAT: activate STE int6 fake-quantization when LR scale drops below this threshold
-    late_qat_lr_threshold = float(os.environ.get("LATE_QAT_LR_THRESHOLD", 0.15))
-    # Late QAT min step guard: only activate after this many steps (prevents smoke-test false triggers)
-    late_qat_min_step = int(os.environ.get("LATE_QAT_MIN_STEP", 500))
+    grad_clip_norm = float(os.environ.get("GRAD_CLIP_NORM", 0.3))
 
 # -----------------------------
 # MUON OPTIMIZER 
@@ -510,35 +506,11 @@ class RMSNorm(nn.Module):
         return F.rms_norm(x, (x.size(-1),), eps=self.eps)
 
 
-# Global flag for Late QAT — when True, CastedLinear uses STE int6 fake-quantized weights
-_late_qat_active: bool = False
-
-
-def ste_fake_int6(w: Tensor) -> Tensor:
-    """Fake int6 quantization with Straight-Through Estimator.
-    Forward: round weights to nearest int6 level; Backward: identity (STE).
-    Int6 range: -31 to 31 (symmetric, 6-bit signed = -32..31 but we use -31..31 for symmetry).
-    Per-row scale to match the final quantization format.
-    """
-    w_f = w.float()
-    if w_f.ndim == 2:
-        # Per-row scale (mirrors quantize_state_dict_int8 per-row logic)
-        scale = w_f.abs().amax(dim=1, keepdim=True).clamp_min(1e-8) / 31.0
-    else:
-        scale = w_f.abs().amax().clamp_min(1e-8) / 31.0
-    w_q = torch.round(w_f / scale).clamp(-31, 31) * scale
-    # STE: use quantized in forward, pass gradient through as if identity
-    return w + (w_q.to(w.dtype) - w).detach()
-
-
 class CastedLinear(nn.Linear):
     # Keep weights in fp32 for optimizer/state quality, cast at matmul time for bf16 compute.
     def forward(self, x: Tensor) -> Tensor:
-        w = self.weight
-        if _late_qat_active and w.ndim == 2:
-            w = ste_fake_int6(w)
         bias = self.bias.to(x.dtype) if self.bias is not None else None
-        return F.linear(x, w.to(x.dtype), bias)
+        return F.linear(x, self.weight.to(x.dtype), bias)
 
 
 def restore_low_dim_params_to_fp32(module: nn.Module) -> None:
@@ -1044,14 +1016,6 @@ def main() -> None:
 
         elapsed_ms = training_time_ms + 1000.0 * (time.perf_counter() - t0)
         scale = lr_mul(step, elapsed_ms)
-
-        # Late QAT (Step 7): activate STE int6 fake-quant when LR scale drops below threshold
-        global _late_qat_active
-        new_qat_state = scale < args.late_qat_lr_threshold and step >= args.late_qat_min_step
-        if new_qat_state and not _late_qat_active:
-            log0(f"late_qat:activating step:{step} lr_scale:{scale:.4f}")
-        _late_qat_active = new_qat_state
-
         zero_grad_all()
         train_loss = torch.zeros((), device=device)
         for micro_step in range(grad_accum_steps):
