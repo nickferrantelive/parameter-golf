@@ -1042,8 +1042,9 @@ def main() -> None:
     import collections
     shard_path = sorted(glob.glob(args.train_files))[0]
     shard_data = np.memmap(shard_path, dtype=np.uint16, mode='r')[:100000]  # first 100K tokens
-    # Build unigram counts
-    unigram_np = np.bincount(shard_data.astype(np.int64), minlength=args.vocab_size).astype(np.int64)
+    # Build unigram counts — clip to vocab_size (bincount returns max_token+1 elements)
+    raw_unigram = np.bincount(shard_data.astype(np.int64), minlength=args.vocab_size).astype(np.int64)
+    unigram_np = raw_unigram[:args.vocab_size]  # keep only in-vocab tokens
     unigram_tensor = torch.tensor(unigram_np, dtype=torch.long)
     # Build bigram counts (vocab_size x vocab_size) — sparse via Counter then scatter
     bigram_counter = collections.Counter()
