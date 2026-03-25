@@ -733,7 +733,7 @@ def main() -> None:
 
     code = Path(__file__).read_text(encoding="utf-8")
     args = Hyperparameters()
-    zeropower_via_newtonschulz5 = torch.compile(zeropower_via_newtonschulz5)
+    # zeropower_via_newtonschulz5 = torch.compile(zeropower_via_newtonschulz5)  # disabled for T4
 
     # -----------------------------
     # DISTRIBUTED + CUDA SETUP
