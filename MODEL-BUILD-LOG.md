@@ -1,7 +1,7 @@
 # Parameter Golf — Model Build Log & Known Issues
 
 **Purpose:** Track what worked, what broke, and what to watch for during incremental builds.
-**Updated:** 2026-03-25 22:00 CDT
+**Updated:** 2026-03-25 23:10 CDT
 
 ---
 
@@ -62,15 +62,20 @@
 - **No gating/routing:** Original spec had ant-colony-style pheromone routing. Not in Step 1.
 - **Step speed:** ~295ms/step on 4070 Super (similar to other models). No speed penalty from frozen backbone.
 
-### Step 2 Plan
-- Add warmdown LR schedule + gradient clipping
-- Add EMA for eval
-- Tune LoRA rank
-- Verify loss curve is actually learning (need >100 steps)
+### Step 2 Results
+- ✅ Warmdown 3500, grad_clip 0.3, EMA 0.997
+- Training loss @ 200 steps: 5.36 (down from 18.4 initial)
+- Step speed: 114ms/step (FASTER than other models — frozen backbone = less gradient work)
+- Smoke test: PASS with VAL_LOSS_EVERY=0
+
+### Step 3 Plan
+- Tune LoRA rank (try 4, 8, 16)
+- Tune frozen/trainable ratio
+- Add router warmup for the LoRA adapters
 
 ---
 
-## Model 7: Immune System / Template Codebook — Step 1 ✅
+## Model 7: Immune System / Template Codebook — Step 2 ✅
 
 ### Concept
 128 weight templates (~96KB each) shared across all layers. Per-token router selects and combines 4 templates to generate effective weights. Like V(D)J recombination in the immune system.
@@ -91,15 +96,20 @@
 - **Quantization of templates:** The original spec calls for int6 quantization. Not implemented in Step 1.
 - **Dynamic weight generation cost:** Each forward pass generates weights on-the-fly. This could be a bottleneck at inference.
 
-### Step 2 Plan
-- Add warmdown LR schedule + gradient clipping
-- Add EMA
+### Step 2 Results
+- ✅ Warmdown 3500, grad_clip 0.3, EMA 0.997
+- Training loss @ 200 steps: 4.49
+- Step speed: 141ms/step
+- Smoke test: PASS with VAL_LOSS_EVERY=0
+
+### Step 3 Plan
 - Add router warmup (slower LR for router in early steps)
-- Monitor template utilization (are all 128 being used?)
+- Monitor template utilization (are all templates being used?)
+- Try different template counts (8, 16, 32)
 
 ---
 
-## Model 8: Crystal (Seed + Growth Rules) — Step 1 ✅
+## Model 8: Crystal (Seed + Growth Rules) — Step 2 ✅
 
 ### Concept
 Single small transformer "seed" block (256d) + growth rule network that generates layer-specific modifications. One block grows into a full model through recursive self-application. The architecture's shape IS the learned knowledge.
@@ -120,12 +130,18 @@ Single small transformer "seed" block (256d) + growth rule network that generate
 - **No recursive depth control yet:** The original spec calls for 12-16 effective layers. Need to verify how many the current Step 1 actually generates.
 - **Gradient flow through growth rules:** Backprop through the growth rule → generated weights → loss path can be unstable. Watch for vanishing/exploding gradients.
 
-### Step 2 Plan
-- Add warmdown LR schedule + gradient clipping
-- Add EMA
-- Increase growth rule complexity slightly
-- Verify actual number of generated layers
+### Step 2 Results
+- ✅ Warmdown 3500, grad_clip 0.3, EMA 0.997
+- Training loss @ 200 steps: 4.36
+- Step speed: 140ms/step
+- Smoke test: PASS with VAL_LOSS_EVERY=0
+- NOTE: growth_rule module exists but is NOT called in forward pass. Currently trains as a baseline + unused params.
+
+### Step 3 Plan
+- **CRITICAL:** Wire growth_rule into the forward pass (otherwise it's just a baseline with dead params)
+- Generate per-layer modifications from the seed/growth network
 - Monitor gradient magnitudes through growth path
+- Increase growth rule complexity
 
 ---
 
@@ -154,6 +170,16 @@ Single small transformer "seed" block (256d) + growth rule network that generate
 - **DON'T:** Try to implement the full architecture spec in one shot. This caused NaN (M6), OOM (M7), and shape errors (M8).
 - **DO:** Test each step with 30-second smoke test before proceeding to next step.
 - **DON'T:** Skip smoke tests. A broken Step N means a broken Step N+1.
+
+### Smoke Test Bug (CRITICAL — discovered 2026-03-25)
+**`eval_val()` at step 0 processes ALL 62M validation tokens.** On a 4070 Super without torch.compile, this takes 30-60+ seconds. If `MAX_WALLCLOCK_SECONDS` is set to 30 for a smoke test, the ENTIRE budget is consumed by the first validation pass. The training loop never executes.
+
+**FIX:** Always use `VAL_LOSS_EVERY=0` for short smoke tests (under 120s). This skips validation during training. Validation works fine for full 10-minute runs where it's <1% of total time.
+
+**Correct smoke test command:**
+```bash
+RUN_ID=test DATA_PATH=./data/datasets/fineweb10B_sp1024/ TOKENIZER_PATH=./data/tokenizers/fineweb_1024_bpe.model VOCAB_SIZE=1024 MAX_WALLCLOCK_SECONDS=30 TRAIN_BATCH_TOKENS=16384 TRAIN_SEQ_LEN=256 WARMUP_STEPS=2 VAL_LOSS_EVERY=0 python3 -u train_gpt_mX_stepY.py
+```
 
 ---
 

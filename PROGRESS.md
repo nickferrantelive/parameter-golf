@@ -1,6 +1,6 @@
 # Parameter Golf — Progress Chart
 
-**Last Updated:** 2026-03-25 22:00 CDT
+**Last Updated:** 2026-03-25 23:10 CDT
 
 ---
 
@@ -12,9 +12,9 @@
 | **1** | Codec | 5/5 | ✅ ALL PASS | 3.88 loss / 8.0 MB | 8.0 MB | **COMPLETE** |
 | **2** | Recursive (Shared Weights) | 3/3 | ✅ ALL PASS | 4.01 loss (9×512d) | ~5.7 MB | **COMPLETE** |
 | **3** | Hybrid (GatedRNN + Attention) | 3/3 | ✅ ALL PASS | 2.529 bpb (213 steps) | ~5.1 MB | **COMPLETE** |
-| **6** | Hive (Frozen + LoRA) | 1/3 | ✅ Step 1 PASS | 96.8% frozen, 545K trainable | — | **IN PROGRESS** |
-| **7** | Immune (Template Library) | 1/3 | ✅ Step 1 PASS | 17M params, ~295ms/step | — | **IN PROGRESS** |
-| **8** | Crystal (Seed + Growth) | 1/3 | ✅ Step 1 PASS | 17M params, ~295ms/step | — | **IN PROGRESS** |
+| **6** | Hive (Frozen + LoRA) | 2/3 | ✅ Step 2 PASS | 5.36 loss @ 200 steps, 114ms/step | — | **IN PROGRESS** |
+| **7** | Immune (Template Library) | 2/3 | ✅ Step 2 PASS | 4.49 loss @ 200 steps, 141ms/step | — | **IN PROGRESS** |
+| **8** | Crystal (Seed + Growth) | 2/3 | ✅ Step 2 PASS | 4.36 loss @ 200 steps, 140ms/step | — | **IN PROGRESS** |
 | **5** | Frankenstein (Best of all) | — | — | — | — | **AFTER ALL TESTED** |
 
 ---
