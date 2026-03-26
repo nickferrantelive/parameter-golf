@@ -15,7 +15,7 @@
 | **6** | Hive (Frozen + LoRA) | 3/3 | ✅ ALL PASS | val_bpb 4.031 (roundtrip 4.109), 138ms/step | 9.4 MB | **COMPLETE** |
 | **7** | Immune (Template Library) | 3/3 | ✅ ALL PASS | val_bpb 3.464 (roundtrip 3.657), 146ms/step | 5.3 MB | **COMPLETE** |
 | **8** | Crystal (Seed + Growth) | 3/3 | ✅ ALL PASS | val_bpb 3.342 (pre-quant), 242ms/step | 5.2 MB | **COMPLETE** |
-| **5** | Frankenstein (Best of all) | — | — | — | — | **AFTER ALL TESTED** |
+| **5** | Frankenstein (BigramEmbed+GrowthRule) | 2/2 | ✅ ALL PASS | val_bpb 3.257 (roundtrip 3.322), 165ms/step | 6.4 MB | **COMPLETE** |
 
 ---
 

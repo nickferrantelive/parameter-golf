@@ -113,8 +113,28 @@
 
 ## Model 5: Frankenstein
 
-**Concept:** Take the best-performing techniques from ALL models and combine them into one.
-**Status:** NOT STARTED — built after M6-M8 are tested.
+**Concept:** Combine the best-performing techniques from all models into one architecture.
+
+| Field | Value |
+|-------|-------|
+| Best score | **val_bpb 3.257** (pre-quant), 3.322 (roundtrip) |
+| Params | 17.4M |
+| Compressed size | 6.4 MB |
+| Steps built | 2/2 — COMPLETE |
+| Latest file | `train_gpt_m5_step2.py` |
+| Status | **COMPLETE** |
+
+**Components combined:**
+- BigramEmbed from M1 Codec (2048-bucket hash of token pairs)
+- GrowthRule from M8 Crystal (per-layer ±5% learned scaling)
+- Standard transformer backbone with all M4 optimizations (warmdown, grad clip, EMA)
+
+**What was tried and removed:**
+- GatedRNN from M3 concept: 7× slower (993ms/step vs 140ms baseline) due to sequential loop. Only got 31 steps in 30s. Unusable for competition.
+
+**Key finding:** BigramEmbed + GrowthRule together (3.257) beat either alone (M1 codec without growth: 2.631, M8 growth without bigram: 3.342). But still behind M1 Codec's full architecture.
+
+**The surprise:** M3 Hybrid's 2.529 bpb was NOT from the GatedRNN — it was dead code. M3 is really just an optimized baseline, same as M4 but with warmdown/grad_clip tuned slightly differently.
 
 ---
 
