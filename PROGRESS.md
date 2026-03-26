@@ -8,8 +8,8 @@
 
 | Model | Name | Steps | Smoke Test | Best Loss (200 steps) | Size | Status |
 |-------|------|-------|-----------|----------------------|------|--------|
-| **4** | Optimized Transformer | 15/15 | ✅ ALL PASS | 3.74 bpb (roundtrip) | 5.1 MB | **COMPLETE** |
-| **1** | Codec | 5/5 | ✅ ALL PASS | 3.88 loss / 8.0 MB | 8.0 MB | **COMPLETE** |
+| **1** | Codec | 5/5 | ✅ ALL PASS | **val_bpb 2.63** 🔥 (Nick manual iteration) | 8.0 MB | **COMPLETE — BEST MODEL** |
+| **4** | Optimized Transformer | 15/15 | ✅ ALL PASS | 3.83 bpb (roundtrip) | 5.1 MB | **COMPLETE** |
 | **2** | Recursive (Shared Weights) | 3/3 | ✅ ALL PASS | 4.01 loss (9×512d) | ~5.7 MB | **COMPLETE** |
 | **3** | Hybrid (GatedRNN + Attention) | 3/3 | ✅ ALL PASS | 2.529 bpb (213 steps) | ~5.1 MB | **COMPLETE** |
 | **6** | Hive (Frozen + LoRA) | 2/3 | ✅ Step 2 PASS | 5.36 loss @ 200 steps, 114ms/step | — | **IN PROGRESS** |
