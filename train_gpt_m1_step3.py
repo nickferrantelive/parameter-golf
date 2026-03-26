@@ -990,6 +990,56 @@ def main() -> None:
     log0(f"seed:{args.seed}")
 
     # -----------------------------
+    # CODEC LAYER 1: Byte frequency analysis (Model 1 Step 1)
+    # CODEC LAYER 2: N-gram log-probability tables (Model 1 Step 3)
+    # Count most common byte sequences in training data; compute unigram + bigram stats.
+    # MUST run before warmup so ngram_proj buffers are populated before forward() is called.
+    # -----------------------------
+    log0("codec:analyzing byte frequencies and n-gram stats...")
+    import collections
+    shard_path = sorted(glob.glob(args.train_files))[0]
+    shard_data = np.memmap(shard_path, dtype=np.uint16, mode='r')[:100000]  # first 100K tokens
+    bigram_counts = collections.Counter()
+    unigram_counts = collections.Counter()
+    for tok in shard_data.tolist():
+        unigram_counts[tok] += 1
+    for i in range(len(shard_data) - 1):
+        bigram_counts[(int(shard_data[i]), int(shard_data[i+1]))] += 1
+    top_bigrams = bigram_counts.most_common(2048)
+    if master_process:
+        log0(f"codec:top_bigrams={len(top_bigrams)} most_common={top_bigrams[0]}")
+
+    # Build unigram log-prob table: shape (vocab_size,)
+    total_tokens = sum(unigram_counts.values()) + args.vocab_size  # add-1 smoothing
+    uni_logprobs_np = np.zeros(args.vocab_size, dtype=np.float32)
+    for tok_id in range(args.vocab_size):
+        count = unigram_counts.get(tok_id, 0) + 1  # add-1 smoothing
+        uni_logprobs_np[tok_id] = math.log(count / total_tokens)
+    unigram_logprobs = torch.from_numpy(uni_logprobs_np).to(device)
+
+    # Build bigram log-prob table: p(curr | prev) using counts
+    # Dense table at vocab_size=1024: 1024*1024*4 bytes = ~4MB — fine
+    bi_logprobs_np = np.zeros((args.vocab_size, args.vocab_size), dtype=np.float32)
+    # row = prev token; fill rows with unigram priors as fallback
+    for prev in range(args.vocab_size):
+        bi_logprobs_np[prev, :] = uni_logprobs_np
+    # Update with actual bigram conditional probabilities
+    prev_totals = collections.Counter()
+    for (p, c), cnt in bigram_counts.items():
+        prev_totals[p] += cnt
+    for (prev, curr), cnt in bigram_counts.items():
+        if prev < args.vocab_size and curr < args.vocab_size:
+            denom = prev_totals[prev] + args.vocab_size  # add-1 smoothing
+            bi_logprobs_np[prev, curr] = math.log((cnt + 1) / denom)
+    bigram_logprobs = torch.from_numpy(bi_logprobs_np).to(device)
+
+    # Inject tables into the model's ngram_proj module
+    base_model.ngram_proj.set_ngram_tables(unigram_logprobs.cpu(), bigram_logprobs.cpu())
+    if master_process:
+        log0("codec:n-gram tables built and injected into model")
+        log0("codec:frequency analysis complete")
+
+    # -----------------------------
     # DATA LOADER & MODEL WARMUP
     # -----------------------------
 
@@ -1033,6 +1083,8 @@ def main() -> None:
             if args.warmup_steps <= 20 or (warmup_step + 1) % 10 == 0 or warmup_step + 1 == args.warmup_steps:
                 log0(f"warmup_step:{warmup_step + 1}/{args.warmup_steps}")
         base_model.load_state_dict(initial_model_state, strict=True)
+        # Re-inject n-gram tables (state_dict restore overwrites the buffers)
+        base_model.ngram_proj.set_ngram_tables(unigram_logprobs.cpu(), bigram_logprobs.cpu())
         for opt, state in zip(optimizers, initial_optimizer_states, strict=True):
             opt.load_state_dict(state)
         zero_grad_all()
@@ -1040,55 +1092,7 @@ def main() -> None:
             model.require_backward_grad_sync = True
         train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
 
-    # -----------------------------
-    # CODEC LAYER 1: Byte frequency analysis (Model 1 Step 1)
-    # CODEC LAYER 2: N-gram log-probability tables (Model 1 Step 3)
-    # Count most common byte sequences in training data; compute unigram + bigram stats.
-    # -----------------------------
-    log0("codec:analyzing byte frequencies and n-gram stats...")
-    import collections
-    shard_path = sorted(glob.glob(args.train_files))[0]
-    shard_data = np.memmap(shard_path, dtype=np.uint16, mode='r')[:100000]  # first 100K tokens
-    bigram_counts = collections.Counter()
-    unigram_counts = collections.Counter()
-    for tok in shard_data.tolist():
-        unigram_counts[tok] += 1
-    for i in range(len(shard_data) - 1):
-        bigram_counts[(int(shard_data[i]), int(shard_data[i+1]))] += 1
-    top_bigrams = bigram_counts.most_common(2048)
-    if master_process:
-        log0(f"codec:top_bigrams={len(top_bigrams)} most_common={top_bigrams[0]}")
-
-    # Build unigram log-prob table: shape (vocab_size,)
-    total_tokens = sum(unigram_counts.values()) + args.vocab_size  # add-1 smoothing
-    uni_logprobs_np = np.zeros(args.vocab_size, dtype=np.float32)
-    for tok_id in range(args.vocab_size):
-        count = unigram_counts.get(tok_id, 0) + 1  # add-1 smoothing
-        uni_logprobs_np[tok_id] = math.log(count / total_tokens)
-    unigram_logprobs = torch.from_numpy(uni_logprobs_np).to(device)
-
-    # Build bigram log-prob table: p(curr | prev) using counts
-    # Use a compressed representation: only store for (prev, curr) pairs that appear
-    # For the full dense table at vocab_size=1024, that's 1024*1024*4 bytes = ~4MB — fine
-    bi_logprobs_np = np.zeros((args.vocab_size, args.vocab_size), dtype=np.float32)
-    # row = prev token; first fill with unigram priors
-    for prev in range(args.vocab_size):
-        bi_logprobs_np[prev, :] = uni_logprobs_np  # default: unigram fallback
-    # Now update with actual bigram counts (conditional on prev)
-    prev_totals = collections.Counter()
-    for (p, c), cnt in bigram_counts.items():
-        prev_totals[p] += cnt
-    for (prev, curr), cnt in bigram_counts.items():
-        if prev < args.vocab_size and curr < args.vocab_size:
-            denom = prev_totals[prev] + args.vocab_size  # add-1 smoothing
-            bi_logprobs_np[prev, curr] = math.log((cnt + 1) / denom)
-    bigram_logprobs = torch.from_numpy(bi_logprobs_np).to(device)
-
-    # Inject tables into the model's ngram_proj module
-    base_model.ngram_proj.set_ngram_tables(unigram_logprobs.cpu(), bigram_logprobs.cpu())
-    if master_process:
-        log0("codec:n-gram tables built and injected into model")
-        log0("codec:frequency analysis complete")
+    # (N-gram analysis already done above, before warmup)
 
     # -----------------------------
     # MAIN TRAINING LOOP
