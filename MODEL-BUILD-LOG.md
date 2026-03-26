@@ -161,6 +161,25 @@ Single small transformer "seed" block (256d) + growth rule network that generate
 
 ---
 
+## Model 1: Codec — Scaling Experiments
+
+### Step 6: + GrowthRule from M8 — REGRESSION ❌
+- Added per-layer ±5% scaling from M8 Crystal
+- val_bpb: 3.193 pre-quant, 3.221 roundtrip (WORSE than Step 5's 2.631)
+- **Lesson:** Growth rule hurts M1. The codec's bigram + n-gram priors are already per-token adaptive — adding per-layer scaling creates interference.
+
+### Scaling test: 11L/640d — SLOWER CONVERGENCE ❌
+- 32.6M params at 11 layers/640d, val_bpb 3.297 in 144 steps
+- Worse than base M1 (2.631) because bigger models need more training steps
+- Will improve at scale (10 min on 8×H100) but useless for 30s smoke tests
+
+### Conclusion
+- **M1 Step 5 remains the best M1 variant** at val_bpb 2.631
+- Don't add more components — the codec architecture is already near-optimal for its design
+- Scaling up (more layers/width) requires real compute to evaluate
+
+---
+
 ## Cross-Model Issues (Apply to ALL)
 
 ### T4 vs 4070 Super vs H100 Compatibility
